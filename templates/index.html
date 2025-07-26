@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>YouTube Downloader</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 2rem;
+    }
+    select, input, button {
+      margin: 10px 0;
+      padding: 10px;
+      width: 100%;
+      max-width: 500px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎬 YouTube Downloader</h1>
+  <input type="text" id="url" placeholder="Paste YouTube URL" />
+  <button onclick="getFormats()">🔍 Get Formats</button>
+
+  <select id="formats" style="display: none;"></select>
+  <button onclick="downloadVideo()" id="downloadBtn" style="display: none;">⬇️ Download</button>
+
+  <p id="status"></p>
+  <script>
+    async function getFormats() {
+      const url = document.getElementById("url").value;
+      if (!url) return alert("Please enter a YouTube URL");
+
+      document.getElementById("status").innerText = "Fetching formats...";
+
+      const res = await fetch(`/formats?url=${encodeURIComponent(url)}`);
+      const data = await res.json();
+
+      const select = document.getElementById("formats");
+      select.innerHTML = "";
+
+      data.formats.forEach(fmt => {
+        const opt = document.createElement("option");
+        opt.value = fmt.format_id;
+        opt.innerText = `${fmt.format} - ${fmt.ext} - ${fmt.resolution || fmt.height + 'p'}`;
+        select.appendChild(opt);
+      });
+
+      select.style.display = "block";
+      document.getElementById("downloadBtn").style.display = "block";
+      document.getElementById("status").innerText = "Select a format and click Download";
+    }
+
+    async function downloadVideo() {
+      const url = document.getElementById("url").value;
+      const format_id = document.getElementById("formats").value;
+
+      document.getElementById("status").innerText = "Downloading...";
+
+      const res = await fetch(`/download`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ url, format_id })
+      });
+
+      const data = await res.json();
+      if (data.status === "ok") {
+        document.getElementById("status").innerHTML = `✅ Download complete: <a href="/download/${data.download_id}">Click here</a>`;
+      } else {
+        document.getElementById("status").innerText = "❌ Download failed.";
+      }
+    }
+  </script>
+</body>
+</html>
