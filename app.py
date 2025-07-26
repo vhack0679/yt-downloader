@@ -1,70 +1,61 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, render_template
+import yt_dlp
 import os
 import uuid
-import threading
-import yt_dlp
 
 app = Flask(__name__)
-DOWNLOAD_FOLDER = 'downloads'
-os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
-progress_data = {}
 
-def download_video_thread(url, format_id, download_id):
-    def progress_hook(d):
-        if d['status'] == 'downloading':
-            progress_data[download_id] = {
-                'progress': d.get('_percent_str', '0%'),
-                'status': 'downloading'
-            }
-        elif d['status'] == 'finished':
-            progress_data[download_id] = {
-                'progress': '100%',
-                'status': 'finished'
-            }
+@app.route("/")
+def index():
+    return render_template("index.html")
 
-    outtmpl = os.path.join(DOWNLOAD_FOLDER, f'{download_id}.%(ext)s')
+@app.route("/formats")
+def formats():
+    url = request.args.get("url")
+    if not url:
+        return jsonify({"error": "Missing URL"}), 400
+
+    ydl_opts = {"quiet": True, "skip_download": True}
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        formats = info.get("formats", [])
+        result = []
+        for f in formats:
+            if f.get("ext") == "mp4" and f.get("height"):  # Filter for video formats
+                result.append({
+                    "format_id": f["format_id"],
+                    "format": f["format"],
+                    "ext": f["ext"],
+                    "resolution": f.get("resolution", f.get("height"))
+                })
+        return jsonify({"formats": result})
+
+@app.route("/download", methods=["POST"])
+def download():
+    data = request.json
+    url = data.get("url")
+    format_id = data.get("format_id")
+
+    download_id = str(uuid.uuid4())
+    filename = f"{download_id}.mp4"
 
     ydl_opts = {
-        'format': format_id,
-        'progress_hooks': [progress_hook],
-        'outtmpl': outtmpl,
+        "quiet": True,
+        "outtmpl": filename,
+        "format": format_id,
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        ext = info.get('ext')
-        progress_data[download_id]['file_path'] = outtmpl.replace('%(ext)s', ext)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        return jsonify({"status": "ok", "download_id": download_id})
+    except Exception as e:
+        print(e)
+        return jsonify({"status": "error", "error": str(e)})
 
-@app.route('/')
-def index():
-    return "✅ YouTube Downloader API is working."
-
-@app.route('/download', methods=['POST'])
-def download():
-    data = request.get_json()
-    if not data or 'url' not in data or 'format_id' not in data:
-        return jsonify({'error': 'Missing url or format_id'}), 400
-
-    url = data['url']
-    format_id = data['format_id']
-    download_id = str(uuid.uuid4())
-    progress_data[download_id] = {'progress': '0%', 'status': 'queued'}
-    
-    thread = threading.Thread(target=download_video_thread, args=(url, format_id, download_id))
-    thread.start()
-    return jsonify({'download_id': download_id})
-
-@app.route('/progress/<download_id>')
-def progress(download_id):
-    return jsonify(progress_data.get(download_id, {'error': 'Invalid ID'}))
-
-@app.route('/download/<download_id>')
-def serve_file(download_id):
-    info = progress_data.get(download_id, {})
-    file_path = info.get('file_path')
-    if file_path and os.path.exists(file_path):
-        return send_file(file_path, as_attachment=True)
-    return 'File not found', 404
-
-if __name__ == '__main__':
-    app.run()
+@app.route("/download/<download_id>")
+def get_file(download_id):
+    path = f"{download_id}.mp4"
+    if os.path.exists(path):
+        return send_file(path, as_attachment=True)
+    return "File not found", 404
