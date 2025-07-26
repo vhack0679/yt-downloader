@@ -1,71 +1,59 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>YouTube Downloader</title>
-    <style>
-        body { font-family: Arial; padding: 20px; }
-        input, button { padding: 8px; margin: 5px; }
-    </style>
+  <title>YouTube Downloader</title>
+  <script>
+    async function fetchFormats() {
+      const url = document.getElementById('url').value;
+      const res = await fetch('/formats', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url})
+      });
+      const formats = await res.json();
+      const select = document.getElementById('format');
+      select.innerHTML = formats.map(f => 
+        `<option value="${f.format_id}">${f.format_id} - ${f.resolution} (${f.ext})</option>`
+      ).join('');
+    }
+
+    async function startDownload() {
+      const url = document.getElementById('url').value;
+      const format_id = document.getElementById('format').value;
+      const res = await fetch('/download', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url, format_id})
+      });
+      const data = await res.json();
+      const id = data.download_id;
+      const status = document.getElementById('status');
+
+      const interval = setInterval(async () => {
+        const pRes = await fetch('/progress/' + id);
+        const pData = await pRes.json();
+        status.innerText = `Progress: ${pData.progress || '0%'} - ${pData.status}`;
+        if (pData.status === 'finished') {
+          clearInterval(interval);
+          const a = document.createElement('a');
+          a.href = '/download/' + id;
+          a.innerText = 'Download Now';
+          a.download = '';
+          document.body.appendChild(a);
+          a.click();
+        }
+      }, 1000);
+    }
+  </script>
 </head>
 <body>
-    <h2>YouTube Downloader</h2>
-    <form id="form">
-        <input type="text" id="url" name="url" placeholder="Paste YouTube URL" size="50" required />
-        <button type="submit">Fetch Formats</button>
-    </form>
+  <h2>YouTube Downloader</h2>
+  <input type="text" id="url" placeholder="Enter YouTube URL" style="width: 60%;">
+  <button onclick="fetchFormats()">Get Formats</button><br><br>
 
-    <div id="formats"></div>
-    <div id="progress"></div>
-
-    <script>
-        const form = document.getElementById('form');
-        form.onsubmit = async (e) => {
-            e.preventDefault();
-            const url = document.getElementById('url').value;
-            const res = await fetch('/formats', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: new URLSearchParams({url})
-            });
-            const data = await res.json();
-            const formatsDiv = document.getElementById('formats');
-            formatsDiv.innerHTML = '';
-
-            if (data.error) {
-                formatsDiv.innerHTML = '<p>Error: ' + data.error + '</p>';
-                return;
-            }
-
-            data.formats.forEach(f => {
-                const btn = document.createElement('button');
-                btn.textContent = `${f.resolution || 'Unknown'} ${f.ext}`;
-                btn.onclick = () => downloadVideo(url, f.format_id);
-                formatsDiv.appendChild(btn);
-            });
-        };
-
-        async function downloadVideo(url, format_id) {
-            const res = await fetch('/download', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: new URLSearchParams({url, format_id})
-            });
-            const data = await res.json();
-            checkProgress(data.id);
-        }
-
-        async function checkProgress(id) {
-            const progressDiv = document.getElementById('progress');
-            const interval = setInterval(async () => {
-                const res = await fetch('/progress/' + id);
-                const data = await res.json();
-                progressDiv.textContent = data.progress;
-                if (data.progress.includes('complete') || data.progress.includes('Error')) {
-                    clearInterval(interval);
-                }
-            }, 2000);
-        }
-    </script>
+  <label>Select Quality:</label>
+  <select id="format"></select>
+  <button onclick="startDownload()">Download</button>
+  <p id="status"></p>
 </body>
 </html>
